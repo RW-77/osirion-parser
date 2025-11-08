@@ -5,8 +5,7 @@ import pandas as pd
 from collections import defaultdict
 from bisect import bisect_left, bisect_right
 
-from get_team_players import get_team_players
-from get_match_players import get_id_to_name_map
+from pipeline.api import osirion_client as osr
 from geometry.vec3 import Vec3, normalize, dot
 from geometry.ray import Ray
 from geometry.sphere import Sphere
@@ -18,12 +17,14 @@ def get_closest(player_id: str, target_ts: int, player_movements) -> dict:
     Returns the closest movement event to the target timestamp target_ts
     belonging to player_id
     """
-    events = player_movements[player_id]
-    if not events:
+    data = player_movements[player_id]
+    if not data or not data["events"]:
         print(f"No movement events found for player {player_id}.")
         return {}
     
-    timestamps = [e["timestamp"] for e in events]
+    timestamps = data["timestamps"]
+    events = data["events"]
+
     idx = bisect_left(timestamps, target_ts)
     
     # Handle edge cases
@@ -83,6 +84,7 @@ def get_hit_events():
 
     return enriched_shots
 
+
 def closest_to_ray(point: Vec3, ray: Ray) -> float:
     origin, direction = ray.origin, ray.dir
     d_len = direction.length()
@@ -100,25 +102,15 @@ def closest_to_ray(point: Vec3, ray: Ray) -> float:
     closest_point_on_ray = origin + dir_norm * proj_len
     return (point - closest_point_on_ray).length()
 
-def get_hit_attempt_events():
+
+def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
     """
     Returns a list of all shots events which are attempts to hit exposed players
     """
 
-    # dfs = []
-    # for path in glob("data/*.json"):
-    #     with open(path, "r") as f:
-    #         events = json.load(f)
-    #     event_type = path.split("/")[-1].replace("_events.json", "")
-    #     df = pd.DataFrame(events)
-    #     df["event_type"] = event_type
-    #     dfs.append(df)
-    # events_df = pd.concat(dfs).sort_values("timestamp").reset_index(drop=True)
-    # events_df.set_index("timestamp", inplace=True)
-
-    with open("data/match_movement_events.json", "r") as f:
+    with open(movement_events_path, "r") as f:
         movement_events = json.load(f)["events"]
-    with open("data/match_shot_events.json", "r") as f:
+    with open(shot_events_path, "r") as f:
         shot_events = json.load(f)["hitscanEvents"]
 
     hit_attempts = []
@@ -127,22 +119,18 @@ def get_hit_attempt_events():
         team_player_ids = json.load(f)
         print(len(team_player_ids))
 
-    # for player_id in match_players.keys():
-    #     if player_id not in team_map:
-    #         team_player_ids = get_team_players(player_id, "832ceecc424df110d58e3e96d3dff834")
-    #         # assign this list to all members of the same team
-    #         for teammate_id in team_player_ids:
-    #             team_map[teammate_id] = team_player_ids
-
     with open("data/processed/test_teammate_map.json", "w") as f:
         json.dump(team_player_ids, f, indent=2)
 
     # get lists of movement events for each player, sorted by timestamp
-    player_movements = defaultdict(list)
+    player_movements = {}
     for me in movement_events:
-        player_movements[me["epicId"]].append(me)
-    for cand_id in player_movements:
-        player_movements[cand_id].sort(key=lambda e: e["timestamp"])
+        pid = me["epicId"]
+        player_movements.setdefault(pid, {"events": [], "timestamps": []})
+        player_movements[pid]["events"].append(me)
+    for pid, data in player_movements.items():
+        data["events"].sort(key=lambda e: e["timestamp"])
+        data["timestamps"] = [e["timestamp"] for e in data["events"]]
 
     i = 1
     for se in shot_events:
@@ -230,4 +218,6 @@ def get_hit_attempt_events():
 
 
 if __name__ == '__main__':
-    attempts = get_hit_attempt_events()
+    movement_events_path = "data/raw/match_movement_events.json"
+    shot_events_path = "data/raw/match_shot_events.json"
+    attempts = get_hit_attempt_events(shot_events_path, movement_events_path)

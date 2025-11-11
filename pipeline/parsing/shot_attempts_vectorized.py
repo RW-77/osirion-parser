@@ -37,7 +37,7 @@ def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
     for player_id in sorted_movements_by_player:
         sorted_movements_by_player[player_id].sort(key=lambda e: e["timestamp"])
 
-    res = defaultdict(dict)
+    pos_cache = defaultdict(dict)
     for player, movement_events in sorted_movements_by_player.items():
         movement_ts = np.array([me["timestamp"] for me in movement_events])
         indices = np.searchsorted(movement_ts, target_ts)
@@ -53,46 +53,89 @@ def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
         closest_movements = [movement_events[i] for i in closest_idxs]
 
         # Store results
-        res[player_id]["timestamps"] = movement_ts
-        res[player_id]["closest_indices"] = closest_idxs
-        res[player_id]["closest_events"] = closest_movements
-
-    '''
-    print("\n=== Time Differences Per Shot Per Player ===")
-    for shot_idx, ts in enumerate(target_ts):
-        diffs = {}
-        for player_id, pdata in res.items():
-            me = pdata["closest_events"][shot_idx]
-            diffs[player_id] = abs(me["timestamp"] - ts)
-        # Sort players by smallest difference (optional)
-        sorted_diffs = dict(sorted(diffs.items(), key=lambda x: x[1]))
-        print(f"Shot {shot_idx:04d} (ts={ts}):")
-        for pid, dt in list(sorted_diffs.items())[:5]:  # show top 5 closest players
-            print(f"  {pid}: {dt:.0f}")
-    '''
+        pos_cache[player_id]["timestamps"] = movement_ts
+        pos_cache[player_id]["closest_indices"] = closest_idxs
+        pos_cache[player_id]["closest_events"] = closest_movements
 
 
-    player_ids = list(res.keys())
-    num_shots = len(target_ts)
-    num_players = len(player_ids)
+    i = 251
+    print(f"target_ts[{i}]: {target_ts[i]}")
+    print("pos_cache:")
+    for player in pos_cache.values():
+        print(player["timestamps"][i])
+    
 
-    diff_matrix = np.zeros((num_shots, num_players), dtype=np.float64)
-    for j, player_id in enumerate(player_ids):
-        pdata = res[player_id]
-        for i in range(num_shots):
-            diff_matrix[i, j] = abs(pdata["closest_events"][i]["timestamp"] - target_ts[i])
+    return
 
-    diff_matrix /= 1000.0
-# --- Visualization ---
-    plt.figure(figsize=(12, 6))
-    plt.imshow(diff_matrix, aspect='auto', cmap='viridis', interpolation='nearest')
-    plt.colorbar(label='Time Difference (ms)')
-    plt.xlabel("Player index")
-    plt.ylabel("Shot index")
-    plt.title("Time difference between each shot and each player's closest movement event")
+    shot_events.sort(key=lambda e: e["timestamp"])
+    for i, se in enumerate(shot_events):
+        if se["epicId"] not in pos_cache:
+            continue
 
-    plt.tight_layout()
-    plt.show()
+        t = se["timestamp"]
+
+        # get position of the actor (at the time)
+        actor_move_event = pos_cache[se["epicId"]]["closest_events"][i]
+        actor_loc = actor_move_event["movementData"]["location"]
+        p_actor = np.array([actor_loc["x"], actor_loc["y"], actor_loc["z"]]) # broadcasted
+
+        # get ending position of the shot
+        p_hit = se["location"]
+        p_hit = np.array([p_hit["x"], p_hit["y"], p_hit["z"]])
+
+        # get positions of all candidates (at the time)
+        cand_ids = [
+            player_id
+            for player_id in pos_cache.keys()
+            if player_id not in team_player_ids[se["epicId"]]
+        ]
+        p_cands = np.array([
+            [
+                pos_cache[player_id]["closest_events"][i]["movementData"]["location"]["x"],
+                pos_cache[player_id]["closest_events"][i]["movementData"]["location"]["y"],
+                pos_cache[player_id]["closest_events"][i]["movementData"]["location"]["z"]
+            ]
+            for player_id in cand_ids
+        ], dtype=np.float32)
+
+        print(p_cands)
+
+        '''
+        v_dir = p_hit - p_actor
+        v_dir = v_dir / np.linalg.norm(v_dir)
+        
+        v_ac = p_cands - p_actor # (N, 3)
+        dist_to_cands = np.linalg.norm(v_ac, axis=1) # (N,)
+        radii = 200 + 0.5 * (dist_to_cands / 100.0) # (N,)
+
+        OC = p_actor - p_cands  # (N, 3)
+        b = 2 * np.einsum('ij,j->i', OC, v_dir)
+        c = np.einsum('ij,ij->i', OC, OC) - radii**2
+        discriminant = b**2 - 4 * c  # (N,)
+
+        hit_mask = discriminant >= 0
+        if np.any(hit_mask):
+            sqrt_disc = np.sqrt(discriminant[hit_mask])
+            t1 = (-b[hit_mask] - sqrt_disc) / 2
+            t2 = (-b[hit_mask] + sqrt_disc) / 2
+            tmin = np.minimum(t1, t2)
+            hit_mask[hit_mask] = (tmin > 0) & (tmin < 25000)
+        '''
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
 
 
 

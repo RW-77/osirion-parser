@@ -1,4 +1,5 @@
 import json
+from pprint import pprint
 import cProfile
 import math
 import pandas as pd
@@ -23,7 +24,6 @@ def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
         movement_events = json.load(f)["events"]
     with open(shot_events_path, "r") as f:
         shot_events = json.load(f)["hitscanEvents"]
-
     with open("data/processed/test_teammate_map.json", "r") as f:
         team_player_ids = json.load(f)
         print(f"Found {len(team_player_ids)} in match.")
@@ -36,16 +36,19 @@ def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
         sorted_movements_by_player[me["epicId"]].append(me)
     for player_id in sorted_movements_by_player:
         sorted_movements_by_player[player_id].sort(key=lambda e: e["timestamp"])
+    
+    print(len(sorted_movements_by_player))
 
     pos_cache = defaultdict(dict)
-    for player, movement_events in sorted_movements_by_player.items():
+    for player_id, movement_events in sorted_movements_by_player.items():
         movement_ts = np.array([me["timestamp"] for me in movement_events])
         indices = np.searchsorted(movement_ts, target_ts)
         indices = np.clip(indices, 1, len(movement_ts)-1)
 
         before = movement_ts[indices - 1]
         after = movement_ts[indices]
-        # Choose whichever side is closer for each shot
+
+        # pick the closer shot (in time)
         choose_after = np.abs(after - target_ts) < np.abs(before - target_ts)
         closest_idxs = np.where(choose_after, indices, indices - 1)
 
@@ -58,20 +61,8 @@ def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
         pos_cache[player_id]["closest_events"] = closest_movements
 
 
-    i = 251
-    print(f"target_ts[{i}]: {target_ts[i]}")
-    print("pos_cache:")
-    for player in pos_cache.values():
-        print(player["timestamps"][i])
-    
-
-    return
-
     shot_events.sort(key=lambda e: e["timestamp"])
     for i, se in enumerate(shot_events):
-        if se["epicId"] not in pos_cache:
-            continue
-
         t = se["timestamp"]
 
         # get position of the actor (at the time)
@@ -98,15 +89,18 @@ def get_hit_attempt_events(shot_events_path: str, movement_events_path: str):
             for player_id in cand_ids
         ], dtype=np.float32)
 
-        print(p_cands)
+        print(f"number of candidates for shot {i}: {len(p_cands)}")
+        # print(p_cands)
 
-        '''
         v_dir = p_hit - p_actor
         v_dir = v_dir / np.linalg.norm(v_dir)
         
         v_ac = p_cands - p_actor # (N, 3)
         dist_to_cands = np.linalg.norm(v_ac, axis=1) # (N,)
         radii = 200 + 0.5 * (dist_to_cands / 100.0) # (N,)
+
+        print(radii)
+        '''
 
         OC = p_actor - p_cands  # (N, 3)
         b = 2 * np.einsum('ij,j->i', OC, v_dir)
@@ -159,6 +153,5 @@ if __name__ == '__main__':
     shot_events_path = "data/raw/match_shot_events.json"
     # attempts = get_hit_attempt_events(shot_events_path, movement_events_path)
     res = get_hit_attempt_events(shot_events_path, movement_events_path)
-    print(res)
 
     # cProfile.run('print(get_hit_attempt_events(shot_events_path, movement_events_path))', sort='tottime')

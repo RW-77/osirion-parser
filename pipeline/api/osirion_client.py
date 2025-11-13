@@ -95,7 +95,7 @@ def get_team_players(epic_id: str, match_id: str):
 
 def fetch_season_tournaments(season: int, out_dir="data/raw"):
     url = f"{BASE_URL}/tournaments"
-    params = { "season": str(season) }
+    params = {}
     data = _make_request(url)
     print(json.dumps(data, indent=2))
 
@@ -151,4 +151,6 @@ def fetch_match_shot_events(match_id: str,
 
 if __name__ == "__main__":
     season = 37
+    # match_id = "832ceecc424df110d58e3e96d3dff834"
+    # fetch_match_info(match_id)
     fetch_season_tournaments(season)

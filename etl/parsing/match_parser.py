@@ -7,6 +7,13 @@ from bisect import bisect_left
 from collections import defaultdict
 
 
+def calculate_distances(coords_pairs):
+    """Calculate 3D distances from coordinate pairs."""
+    a_arr = np.array([c[0] for c in coords_pairs], dtype=np.float32)
+    r_arr = np.array([c[1] for c in coords_pairs], dtype=np.float32)
+    diff = a_arr - r_arr
+    return np.sqrt(np.sum(diff**2, axis=1))
+
 def get_time_table(player_events, reference_events):
     """
     Returns for each player, the event belonging to them in `player_events` 
@@ -52,11 +59,8 @@ def build_zone_timeline(zone_events: list[dict]):
     zone_events.sort(key=lambda e: e["currentPhase"])
     
     for i, zone_event in enumerate(zone_events):
-        zone_num = i+1
         end_time = zone_event["shrinkEndTime"]
         zone_timeline.append(end_time)
-    for zone in zone_timeline:
-        print(zone)
     return zone_timeline
 
 
@@ -85,25 +89,30 @@ def parse_elims(match_id):
 
     elim_events.sort(key=lambda e: e["timestamp"])
 
-    damage_events = []
+    enriched_elims = []
+    coord_pairs = []
 
-    a_coords = []
-    r_coords = []
     for i, ee in enumerate(elim_events):
+        # self eliminations do not show actor location
+        if ee["selfElimination"]:
+            continue
+
         actor_id = ee["epicId"]
         recipient_id = ee["targetId"]
 
         ts = ee["timestamp"]
         zone = bisect_left(zone_timeline, ts) + 1
-        weapon_id = ee["weaponId"]
+        weapon_id = ee["gunType"]
 
         actor_loc = ee["playerLocation"]
         recipient_loc = ee["targetLocation"]
 
-        a_coords.append((actor_loc["x"], actor_loc["y"], actor_loc["z"]))
-        r_coords.append((recipient_loc["x"], recipient_loc["y"], recipient_loc["z"]))
+        coord_pairs.append((
+            (actor_loc["x"], actor_loc["y"], actor_loc["z"]),
+            (recipient_loc["x"], recipient_loc["y"], recipient_loc["z"])
+        ))
 
-        damage_events.append({
+        enriched_elims.append({
             "timestamp": ts,
             "zone": zone,
             "weapon_id": weapon_id,
@@ -117,15 +126,11 @@ def parse_elims(match_id):
             "rz": recipient_loc["z"],
         })
 
-    a_arr = np.array(a_coords, dtype=np.float32)
-    r_arr = np.array(r_coords, dtype=np.float32)
-
-    diff = a_arr - r_arr # (N, 3)
-    distances = np.sqrt(np.sum(diff**2, axis=1))
-    for i, event in enumerate(damage_events):
+    distances = calculate_distances(coord_pairs)
+    for i, event in enumerate(enriched_elims):
         event["distance"] = float(distances[i])
 
-    return elim_events
+    return enriched_elims
 
 
 def parse_damage(match_id):
@@ -166,10 +171,9 @@ def parse_damage(match_id):
 
     pos_cache = get_time_table(movement_events, hit_events)
 
-    damage_events = []
+    enriched_damages = []
 
-    a_coords = []
-    r_coords = []
+    coord_pairs = []
     for i, he in enumerate(hit_events):
         ts = he["timestamp"]
         zone = bisect_left(zone_timeline, ts) + 1
@@ -183,10 +187,12 @@ def parse_damage(match_id):
         recipient_id = he["hitEpicId"]
         recipient_loc = he["location"]
 
-        a_coords.append((actor_loc["x"], actor_loc["y"], actor_loc["z"]))
-        r_coords.append((recipient_loc["x"], recipient_loc["y"], recipient_loc["z"]))
+        coord_pairs.append((
+            (actor_loc["x"], actor_loc["y"], actor_loc["z"]),
+            (recipient_loc["x"], recipient_loc["y"], recipient_loc["z"])
+        ))
 
-        damage_events.append({
+        enriched_damages.append({
             "timestamp": ts,
             "zone": zone,
             "weapon_id": weapon_id,
@@ -200,18 +206,16 @@ def parse_damage(match_id):
             "rz": recipient_loc["z"],
         })
 
-    a_arr = np.array(a_coords, dtype=np.float32)
-    r_arr = np.array(r_coords, dtype=np.float32)
-
-    diff = a_arr - r_arr # (N, 3)
-    distances = np.sqrt(np.sum(diff**2, axis=1))
-    for i, event in enumerate(damage_events):
+    distances = calculate_distances(coord_pairs)
+    for i, event in enumerate(enriched_damages):
         event["distance"] = float(distances[i])
 
-    return damage_events
+    return enriched_damages
 
 
 if __name__ == "__main__":
     match_id = "832ceecc424df110d58e3e96d3dff834"
-    damage_events = parse_damage(match_id)
-    print(json.dumps(damage_events, indent=2))
+    # damage_events = parse_damage(match_id)
+    # print(json.dumps(damage_events, indent=2))
+    elim_events = parse_elims(match_id)
+    print(json.dumps(elim_events, indent=2))

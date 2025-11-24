@@ -1,135 +1,180 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
+
 
 load_dotenv()
 
 Base = declarative_base()
 
+
+class EventWindow(Base):
+    __tablename__ = "event_windows"
+
+    event_window_id = Column(String(100), primary_key=True) # eventWindowId
+    processing = Column(Boolean, nullable=False, default=False)
+    processed = Column(Boolean, nullable=False, default=False)
+    failed = Column(Boolean, nullable=False, default=False)
+
+    discovered_at = Column(DateTime, default=datetime.now(timezone.utc))
+    last_processing_start = Column(DateTime)
+    last_processed = Column(DateTime)
+    last_failed = Column(DateTime)
+
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+
+    # relationships
+    matches = relationship("Match", backpopulates="matches")
+
+    def __repr__(self):
+        return f"<EventWindow(event_window_id={self.event_window_id})>"
+
+
 class Match(Base):
-    __tablename__ = "Match"
+    __tablename__ = "matches"
     
-    id = Column(String(50), primary_key=True)
-    startTime = Column(DateTime, nullable=False)
-    endTime = Column(DateTime, nullable=True)
-    tournamentId = Column(String(100), nullable=True)
-    createdAt = Column(DateTime, default=datetime.utcnow)
+    match_id = Column(String(50), primary_key=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    tournament_id = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     # Relationships
-    damage_events = relationship("DamageEvent", back_populates="match")
+    damage_dealt_events = relationship("DamageDealtEvent", back_populates="match")
     elim_events = relationship("EliminationEvent", back_populates="match")
-    players = relationship("Player", back_populates="match")
+    players = relationship("MatchPlayer", back_populates="match")
+
+    def __repr__(self):
+        return f"<Match(match_id={self.match_id})>"
 
 
-class Player(Base):
-    __tablename__ = "Player"
+class MatchPlayer(Base):
+    __tablename__ = "match_players"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    epicId = Column(String(100), nullable=False)
-    epicUsername = Column(String(100), nullable=False)
-    matchId = Column(String(50), ForeignKey("Match.id"), nullable=False)
-    
+
+    epic_id = Column(String(100), nullable=False)
+    epic_username = Column(String(100), nullable=False)
+    match_id = Column(String(50), ForeignKey("matches.match_id"), nullable=False)
+
     # Relationships
     match = relationship("Match", back_populates="players")
-    damage_dealt = relationship("DamageEvent", foreign_keys="DamageEvent.shooterId", back_populates="shooter")
-    damage_taken = relationship("DamageEvent", foreign_keys="DamageEvent.victimId", back_populates="victim")
+    damage_dealt = relationship(
+        "DamageDealtEvent",
+        foreign_keys="DamageDealtEvent.actor_id", 
+        back_populates="actor"
+    )
+    damage_taken = relationship(
+        "DamageDealtEvent", 
+        foreign_keys="DamageDealtEvent.recipient_id", 
+        back_populates="recipient"
+    )
     
     __table_args__ = (
-        Index('idx_player_epic_match', 'epicId', 'matchId', unique=True),
-        Index('idx_player_match', 'matchId'),
+        Index('idx_player_epic_match', 'epic_id', 'match_id', unique=True),
+        Index('idx_player_match', 'match_id'),
     )
 
+    def __repr__(self):
+        return f"<MatchPlayer(epic_id={self.epic_id}, epic_username={self.epic_username}, match_id={self.match_id})>"
 
-class DamageEvent(Base):
-    __tablename__ = "DamageEvent"
+
+class DamageDealtEvent(Base):
+    __tablename__ = "damage_dealt_events"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    matchId = Column(String(50), ForeignKey("Match.id"), nullable=False)
+    match_id = Column(String(50), ForeignKey("matches.match_id"), nullable=False)
     timestamp = Column(DateTime, nullable=False)
-    gameTimeSeconds = Column(Integer, nullable=False)
+    game_time_seconds = Column(Integer, nullable=False)
     
-    # Players
-    shooterId = Column(String(100), nullable=False)
-    victimId = Column(String(100), nullable=False)
+    actor_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
+    recipient_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
     
-    # Damage details
-    weaponId = Column(String(100), nullable=False)
-    weaponType = Column(String(50), nullable=True)
-    damageAmount = Column(Float, nullable=False)
+    weapon_id = Column(String(100), nullable=False)
+    weapon_type = Column(String(50), nullable=True)
+    damage_amount = Column(Float, nullable=False)
     
-    # Positions
-    shooterX = Column(Float, nullable=False)
-    shooterY = Column(Float, nullable=False)
-    shooterZ = Column(Float, nullable=False)
-    victimX = Column(Float, nullable=False)
-    victimY = Column(Float, nullable=False)
-    victimZ = Column(Float, nullable=False)
+    actor_x = Column(Float, nullable=False)
+    actor_y = Column(Float, nullable=False)
+    actor_z = Column(Float, nullable=False)
+    recipient_x = Column(Float, nullable=False)
+    recipient_y = Column(Float, nullable=False)
+    recipient_z = Column(Float, nullable=False)
     distance = Column(Float, nullable=False)
     
-    # Context
     zone = Column(Integer, nullable=False)
-    
-    # Relationships
-    match = relationship("Match", back_populates="damage_events")
-    shooter = relationship("Player", foreign_keys=[shooterId], back_populates="damage_dealt")
-    victim = relationship("Player", foreign_keys=[victimId], back_populates="damage_taken")
+
+    match = relationship("Match", back_populates="damage_dealt_events")
+    actor = relationship(
+        "MatchPlayer", 
+        foreign_keys=[actor_id], 
+        back_populates="damage_dealt"
+    )
+    recipient = relationship(
+        "MatchPlayer", 
+        foreign_keys=[recipient_id], 
+        back_populates="damage_taken"
+    )
     
     __table_args__ = (
-        Index('idx_damage_match', 'matchId'),
-        Index('idx_damage_shooter', 'shooterId'),
-        Index('idx_damage_victim', 'victimId'),
-        Index('idx_damage_weapon', 'weaponType'),
+        Index('idx_damage_match', 'match_id'),
+        Index('idx_damage_actor', 'actor_id'),
+        Index('idx_damage_recipient', 'recipient_id'),
+        Index('idx_damage_weapon', 'weapon_type'),
         Index('idx_damage_zone', 'zone'),
         Index('idx_damage_distance', 'distance'),
-        Index('idx_damage_time', 'gameTimeSeconds'),
+        Index('idx_damage_time', 'game_time_seconds'),
     )
+
+    def __repr__(self):
+        return f"<DamageDealtEvent(actor_id={self.actor_id}, recipient_id={self.recipient_id}, damage_amount={self.damage_amount}, match_id={self.match_id})>"
 
 
 class EliminationEvent(Base):
-    __tablename__ = "EliminationEvent"
+    __tablename__ = "elimination_events"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    matchId = Column(String(50), ForeignKey("Match.id"), nullable=False)
+    match_id = Column(String(50), ForeignKey("matches.id"), nullable=False)
     timestamp = Column(DateTime, nullable=False)
-    gameTimeSeconds = Column(Integer, nullable=False)
+    game_time_seconds = Column(Integer, nullable=False)
     
-    # Players
-    actorId = Column(String(100), nullable=False)
-    victimId = Column(String(100), nullable=False)
+    actor_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
+    recipient_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
     
-    # Elimination details
-    weaponId = Column(String(100), nullable=False)
-    weaponType = Column(String(50), nullable=True)
+    weapon_id = Column(String(100), nullable=False)
+    weapon_type = Column(String(50), nullable=True)
     
-    # Positions
-    actorX = Column(Float, nullable=False)
-    actorY = Column(Float, nullable=False)
-    actorZ = Column(Float, nullable=False)
-    victimX = Column(Float, nullable=False)
-    victimY = Column(Float, nullable=False)
-    victimZ = Column(Float, nullable=False)
+    actor_x = Column(Float, nullable=False)
+    actor_y = Column(Float, nullable=False)
+    actor_z = Column(Float, nullable=False)
+    recipient_x = Column(Float, nullable=False)
+    recipient_y = Column(Float, nullable=False)
+    recipient_z = Column(Float, nullable=False)
     distance = Column(Float, nullable=False)
     
-    # Context
     zone = Column(Integer, nullable=False)
     
-    # Relationships
     match = relationship("Match", back_populates="elim_events")
     
     __table_args__ = (
-        Index('idx_elim_match', 'matchId'),
-        Index('idx_elim_actor', 'actorId'),
-        Index('idx_elim_victim', 'victimId'),
+        Index('idx_elim_match', 'match_id'),
+        Index('idx_elim_actor', 'actor_id'),
+        Index('idx_elim_recipient', 'recipient_id'),
         Index('idx_elim_zone', 'zone'),
     )
+
+    def __repr__(self):
+        return f"<EliminationEvent(actor_id={self.actor_id}, recipient_id={self.recipient_id}, match_id={self.match_id})>"
 
 
 # Database connection
 def get_engine():
     database_url = os.getenv("DATABASE_URL")
+    print(f"DATABASE_URL: {database_url}")
     if not database_url:
         raise ValueError("DATABASE_URL not set in .env")
     return create_engine(database_url, echo=False)

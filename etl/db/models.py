@@ -28,7 +28,7 @@ class EventWindow(Base):
     end_time = Column(DateTime, nullable=True)
 
     # relationships
-    matches = relationship("Match", backpopulates="matches")
+    matches = relationship("Match", back_populates="event_window_id")
 
     def __repr__(self):
         return f"<EventWindow(event_window_id={self.event_window_id})>"
@@ -38,9 +38,13 @@ class Match(Base):
     __tablename__ = "matches"
     
     match_id = Column(String(50), primary_key=True)
+
+    event_window_id = Column(String(50), ForeignKey("event_windows.event_window_id"), nullable=False)
+    event_id = Column(String(100), nullable=True)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=True)
-    tournament_id = Column(String(100), nullable=True)
+    gamemode = Column(String(100), nullable=True)
+    duration = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     # Relationships
@@ -91,8 +95,8 @@ class DamageDealtEvent(Base):
     timestamp = Column(DateTime, nullable=False)
     game_time_seconds = Column(Integer, nullable=False)
     
-    actor_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
-    recipient_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
+    actor_id = Column(String(100), ForeignKey("match_players.id"), nullable=False)
+    recipient_id = Column(String(100), ForeignKey("match_players.id"), nullable=False)
     
     weapon_id = Column(String(100), nullable=False)
     weapon_type = Column(String(50), nullable=True)
@@ -138,7 +142,7 @@ class EliminationEvent(Base):
     __tablename__ = "elimination_events"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
-    match_id = Column(String(50), ForeignKey("matches.id"), nullable=False)
+    match_id = Column(String(50), ForeignKey("matches.match_id"), nullable=False)
     timestamp = Column(DateTime, nullable=False)
     game_time_seconds = Column(Integer, nullable=False)
     
@@ -191,3 +195,6 @@ def init_db():
     engine = get_engine()
     Base.metadata.create_all(engine)
     print("✅ Database tables created")
+
+if __name__ == "__main__":
+    init_db()

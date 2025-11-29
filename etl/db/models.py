@@ -28,7 +28,7 @@ class EventWindow(Base):
     end_time = Column(DateTime, nullable=True)
 
     # relationships
-    matches = relationship("Match", back_populates="event_window_id")
+    matches = relationship("Match", back_populates="event_window")
 
     def __repr__(self):
         return f"<EventWindow(event_window_id={self.event_window_id})>"
@@ -45,9 +45,11 @@ class Match(Base):
     end_time = Column(DateTime, nullable=True)
     gamemode = Column(String(100), nullable=True)
     duration = Column(DateTime, nullable=True)
+    player_count = Column(Integer, nullable=True)
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
     # Relationships
+    event_window = relationship("EventWindow", back_populates="matches")
     damage_dealt_events = relationship("DamageDealtEvent", back_populates="match")
     elim_events = relationship("EliminationEvent", back_populates="match")
     players = relationship("MatchPlayer", back_populates="match")
@@ -95,8 +97,8 @@ class DamageDealtEvent(Base):
     timestamp = Column(DateTime, nullable=False)
     game_time_seconds = Column(Integer, nullable=False)
     
-    actor_id = Column(String(100), ForeignKey("match_players.id"), nullable=False)
-    recipient_id = Column(String(100), ForeignKey("match_players.id"), nullable=False)
+    actor_id = Column(Integer, ForeignKey("match_players.id"), nullable=False)
+    recipient_id = Column(Integer, ForeignKey("match_players.id"), nullable=False)
     
     weapon_id = Column(String(100), nullable=False)
     weapon_type = Column(String(50), nullable=True)
@@ -146,8 +148,8 @@ class EliminationEvent(Base):
     timestamp = Column(DateTime, nullable=False)
     game_time_seconds = Column(Integer, nullable=False)
     
-    actor_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
-    recipient_id = Column(String(100), ForeignKey("match_players.epic_id"), nullable=False)
+    actor_id = Column(Integer, ForeignKey("match_players.id"), nullable=False)
+    recipient_id = Column(Integer, ForeignKey("match_players.id"), nullable=False)
     
     weapon_id = Column(String(100), nullable=False)
     weapon_type = Column(String(50), nullable=True)
@@ -190,9 +192,10 @@ def get_session():
     return Session()
 
 
-def init_db():
+def reinit_db():
     """Create all tables"""
     engine = get_engine()
+    Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     print("✅ Database tables created")
 

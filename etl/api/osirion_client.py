@@ -93,17 +93,10 @@ def get_team_players(epic_id: str, match_id: str):
         return None
 
 
-def fetch_season_tournaments(season: int, out_dir="data/raw"):
-    url = f"{BASE_URL}/tournaments"
-    params = {}
-    data = _make_request(url)
-    print(json.dumps(data, indent=2))
-
-
 def fetch_match_info(match_id: str, out_dir="data/raw") -> str:
     url = f"{BASE_URL}/matches/{match_id}"
     data = _make_request(url)
-    out_path =f"{out_dir}/match_{match_id}/match_info.json"
+    out_path =f"{out_dir}/match_{match_id}/info.json"
     _save_json(data, out_path)
     return out_path
 
@@ -149,8 +142,36 @@ def fetch_match_shot_events(match_id: str,
     return out_path
 
 
+def fetch_event_window_data(event_window_id: str, out_dir="data/raw"):
+    url = f"{BASE_URL}/tournaments"
+    params = { "eventWindowId": event_window_id }
+    data = _make_request(url, params)
+    out_path = f"{out_dir}/event_window_{event_window_id}/info.json"
+    _save_json(data, out_path)
+    return out_path
+
+
+def fetch_by_event_window(event_window_id: str, out_dir="data/raw"):
+    url = f"{BASE_URL}/matches"
+    params = { "eventWindowId": event_window_id, "ignoreUploads": True }
+    data = _make_request(url, params)
+    out_path = f"{out_dir}/event_window_{event_window_id}/event_window_matches.json"
+    _save_json(data, out_path)
+    return out_path
+
+
+def fetch_by_event(event_id: str, out_dir="data/raw"):
+    url = f"{BASE_URL}/matches"
+    params = { "eventId": event_id, "ignoreUploads": True }
+    data = _make_request(url, params)
+    out_path = f"{out_dir}/event_window_{event_id}/event_matches.json"
+    _save_json(data, out_path)
+    return out_path
+
+
 if __name__ == "__main__":
     season = 37
     # match_id = "832ceecc424df110d58e3e96d3dff834"
     # fetch_match_info(match_id)
-    fetch_season_tournaments(season)
+    event_window = "S29_FNCS_Major2_GrandFinalDay2_EU"
+    ew_data_path = fetch_event_window_data(event_window)

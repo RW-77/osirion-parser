@@ -34,7 +34,9 @@ def fetch_tournaments():
     response = requests.get(url, headers=headers)
     response.raise_for_status()
     data = response.json()
+    print(json.dumps(data, indent=2))
     return data
+
 
 def check_for_new_tournaments():
     seen = load_seen()

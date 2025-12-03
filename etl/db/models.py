@@ -1,8 +1,10 @@
+import os
+
 from sqlalchemy import create_engine, String, Float, DateTime, Boolean, ForeignKey, Index, Integer
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, Session, sessionmaker
 from datetime import datetime, timezone
 from typing import Optional, List
-import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,8 +29,11 @@ class EventWindow(Base):
     last_processed: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None)
     last_failed: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None)
 
-    start_time: Mapped[datetime] = mapped_column(DateTime)
-    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None)
+    start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None, nullable=True)
+    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None, nullable=True)
+
+    total_matches: Mapped[int] = mapped_column(Integer)
+    processed_matches: Mapped[int] = mapped_column(Integer)
 
     # Relationships
     matches: Mapped[List["Match"]] = relationship(back_populates="event_window")

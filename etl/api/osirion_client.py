@@ -28,6 +28,7 @@ def _save_json(data: dict, path: str):
 
 def session_to_match_id(session_id: str) -> str | None:
     """
+    TODO: need to ask how a session id differs from an event window id
     Returns the match ID for a given session ID.
     """
     url = f"{BASE_URL}/matches/session-id-to-match-id?serverRecordedOnly=true&sessionIds={session_id}"
@@ -45,38 +46,10 @@ def session_to_match_id(session_id: str) -> str | None:
         return None
 
 
-def get_id_to_name_map(match_id: str) -> dict | None:
-    """
-    Returns a mapping of player IDs to Epic usernames for all players for 
-    given match.
-    """
-
-    url = f"{BASE_URL}/matches/{match_id}/players"
-    params = {}
-
-    data = _make_request(url, params)
-
-    players = data.get("players")
-    if players:
-        map = {
-            p["epicId"]: p["epicUsername"] 
-            for p in players
-            if not (
-                p["isSpectator"]
-                or p["isBot"]
-                or p["epicUsername"].startswith("BLAST_")
-                or p["epicUsername"].startswith("OBS_")
-            )
-        }
-        return map
-
-    else:
-        print("No players found in response.")
-        print(json.dumps(data, indent=2))
-        return {}
-
-
 def get_team_players(epic_id: str, match_id: str):
+    """
+    TODO: need a cheaper way to do this
+    """
     url = f"{BASE_URL}/matches/{match_id}/team?epicId={epic_id}"
     params = {}
 
@@ -93,6 +66,17 @@ def get_team_players(epic_id: str, match_id: str):
         return None
 
 
+def fetch_match_players(match_id: str, out_dir="date/raw") -> str:
+    """
+    Fetch all match players, including spectators and bots, for a single match.
+    """
+    url = f"{BASE_URL}/matches/{match_id}"
+    data = _make_request(url)
+    out_path =f"{out_dir}/match_{match_id}/players.json"
+    _save_json(data, out_path)
+    return out_path
+
+
 def fetch_match_info(match_id: str, out_dir="data/raw") -> str:
     url = f"{BASE_URL}/matches/{match_id}"
     data = _make_request(url)
@@ -104,17 +88,29 @@ def fetch_match_info(match_id: str, out_dir="data/raw") -> str:
 def fetch_match_events(match_id: str, out_dir="data/raw") -> str:
     url = f"{BASE_URL}/matches/{match_id}/events"
 
-    params = {
-        "include": (
-            "safeZoneUpdateEvents,"
-            "reviveEvents, rebootEvents, knockedDownEvents, eliminationEvents,"
-            "playerInventoryUpdateEvents,"
-            "landingEvents"
-        ) 
-    }
+    required_logs = [
+        "safeZoneUpdateEvents",
+        "reviveEvents",
+        "rebootEvents", 
+        "knockedDownEvents",
+        "eliminationEvents",
+        "playerInventoryUpdateEvents",
+        "landingEvents"
+    ]
+
+    params = { "include": ",".join(required_logs) }
     data = _make_request(url, params)
-    out_path = f"{out_dir}/match_{match_id}/match_events.json"
-    _save_json(data, out_path)
+    saved_paths = {}
+
+    match_dir = f"{out_dir}/match_{match_id}"
+    for event_type in required_logs:
+        if event_type in data and data[event_type]:
+            out_path = f"{match_dir}/{event_type}.json"
+            _save_json(data[event_type], out_path)
+            saved_paths[event_type] = out_path
+        else:
+            print(f"Warning: no data for {event_type} found in general events")
+
     return out_path
 
 
@@ -125,7 +121,7 @@ def fetch_match_movement_events(match_id: str,
     url = f"{BASE_URL}/matches/{match_id}/events/movement"
     params = { "startTimeRelative": {start_time}, "endTimeRelative": {end_time} }
     data = _make_request(url, params)
-    out_path = f"{out_dir}/match_{match_id}/match_movement_events.json"
+    out_path = f"{out_dir}/match_{match_id}/movement_events.json"
     _save_json(data, out_path)
     return out_path
 
@@ -137,9 +133,46 @@ def fetch_match_shot_events(match_id: str,
     url = f"{BASE_URL}/matches/{match_id}/events/shots"
     params = {"startTimeRelative": start_time, "endTimeRelative": end_time}
     data = _make_request(url, params)
-    out_path = f"{out_dir}/match_{match_id}/match_shot_events.json"
+    out_path = f"{out_dir}/match_{match_id}/shot_events.json"
     _save_json(data, out_path)
     return out_path
+
+
+def fetch_match_all(match_id: str, out_dir: str = "data/raw"):
+    """
+    Fetch all data for a single match from Osirion API.
+    - match metadata
+    - players list
+    - general events
+    - shot events
+    - movements events
+    - build events (later)
+    """
+    print(f"Fetching all data for match {match_id}...")
+
+    paths = {}
+    try:
+            # Fetch match info (metadata)
+            paths["info"] = fetch_match_info(match_id, out_dir)
+            
+            # Fetch players
+            paths["players"] = fetch_match_players(match_id, out_dir)
+            
+            # Fetch general events (eliminations, zones, etc.)
+            paths["events"] = fetch_match_events(match_id, out_dir)
+            
+            # Fetch movement events
+            paths["movement_events"] = fetch_match_movement_events(match_id, out_dir)
+            
+            # Fetch shot events
+            paths["shot_events"] = fetch_match_shot_events(match_id, out_dir)
+            
+            print(f"✅ Successfully fetched all data for match {match_id}")
+            return paths
+        
+    except Exception as e:
+        print(f"❌ Error fetching data for match {match_id}: {e}")
+        raise
 
 
 def fetch_event_window_data(event_window_id: str, out_dir="data/raw"):
@@ -155,7 +188,7 @@ def fetch_by_event_window(event_window_id: str, out_dir="data/raw"):
     url = f"{BASE_URL}/matches"
     params = { "eventWindowId": event_window_id, "ignoreUploads": True }
     data = _make_request(url, params)
-    out_path = f"{out_dir}/event_window_{event_window_id}/event_window_matches.json"
+    out_path = f"{out_dir}/event_window_{event_window_id}/matches.json"
     _save_json(data, out_path)
     return out_path
 
@@ -164,7 +197,7 @@ def fetch_by_event(event_id: str, out_dir="data/raw"):
     url = f"{BASE_URL}/matches"
     params = { "eventId": event_id, "ignoreUploads": True }
     data = _make_request(url, params)
-    out_path = f"{out_dir}/event_window_{event_id}/event_matches.json"
+    out_path = f"{out_dir}/event_window_{event_id}/matches.json"
     _save_json(data, out_path)
     return out_path
 

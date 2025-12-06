@@ -16,23 +16,27 @@ def calculate_distances(coords_pairs):
     return np.sqrt(np.sum(diff**2, axis=1))
 
 
-def get_time_table(player_events, reference_events):
+def indexed_events(player_events: list[dict], reference_events: list[dict]):
     """
     Returns for each player, the event belonging to them in `player_events` 
     occuring closest in time to each event in `reference_events`.
-    Assumes `reference_events` is already sorted by `timestamp`.
+
+    This function has several restrictions:
+        - Assumes `reference_events` is already sorted by `timestamp`.
     """
     target_ts = np.sort(np.array([e["timestamp"] for e in reference_events]), kind="stable")
     sorted_per_player = defaultdict(list)
 
+    # Created sorted list of `player_events` for each player
     for e in player_events:
         sorted_per_player[e["epicId"]].append(e)
     for player_id in sorted_per_player:
         sorted_per_player[player_id].sort(key=lambda e: e["timestamp"])
 
     cache = defaultdict(dict)
+    # operates on all the `player_events` of a player at once
     for player_id, events in sorted_per_player.items():
-        event_ts = np.array([me["timestamp"] for me in events])
+        event_ts = np.array([e["timestamp"] for e in events])
         indices = np.searchsorted(event_ts, target_ts)
         indices = np.clip(indices, 1, len(event_ts)-1)
 
@@ -66,7 +70,7 @@ def build_zone_timeline(zone_events: list[dict]):
     return zone_timeline
 
 
-def parse_match_metadata(match_id):
+def parse_match_metadata(match_id: str):
     match_info_path = f"data/raw/match_{match_id}/info.json"
     try:
         with open(match_info_path, "r") as f:
@@ -88,7 +92,7 @@ def parse_match_metadata(match_id):
     }
 
 
-def parse_match_players(match_id) -> list[dict]:
+def parse_match_players(match_id: str) -> list[dict]:
     match_players_path = f"data/raw/match_{match_id}/players.json"
     try:
         with open(match_players_path, "r") as f:
@@ -110,7 +114,7 @@ def parse_match_players(match_id) -> list[dict]:
     return players
 
 
-def parse_elims(match_id):
+def parse_elims(match_id: str):
     """
     Time
     Distance
@@ -120,7 +124,7 @@ def parse_elims(match_id):
 
     with (
         open(f"{match_path}/shot_events.json", "r") as f1,
-        open(f"{match_path}/match_info.json", "r") as f2,
+        open(f"{match_path}/info.json", "r") as f2,
         open(f"{match_path}/eliminationEvents.json", "r") as f3,
         open(f"{match_path}/safeZoneUpdateEvents.json", "r") as f4
     ):
@@ -150,7 +154,9 @@ def parse_elims(match_id):
         zone = bisect_left(zone_timeline, ts) + 1
         weapon_id = ee["gunType"]
 
-        actor_loc = ee["playerLocation"]
+        actor_loc = ee.get("playerLocation")
+        if actor_loc is None:
+            pass
         recipient_loc = ee["targetLocation"]
 
         coord_pairs.append((
@@ -179,7 +185,7 @@ def parse_elims(match_id):
     return enriched_elim_events
 
 
-def parse_damage_dealt(match_id):
+def parse_damage_dealt(match_id: str):
     """
     Time
     Distance
@@ -187,27 +193,21 @@ def parse_damage_dealt(match_id):
     """
     match_path = f"data/raw/match_{match_id}"
 
+    zone_events_path = f"{match_path}/safeZoneUpdateEvents.json"
     shot_events_path = f"{match_path}/shot_events.json"
     movement_events_path = f"{match_path}/movement_events.json"
-    general_events_path = f"{match_path}/events.json"
-    match_info_path = f"{match_path}/match_info.json"
+    match_info_path = f"{match_path}/info.json"
 
     with (
-        open(general_events_path, "r") as f1,
+        open(zone_events_path, "r") as f1,
         open(movement_events_path, "r") as f2,
         open(shot_events_path, "r") as f3,
         open(match_info_path, "r") as f4,
     ):
-        general_events = json.load(f1)
+        zone_events = json.load(f1)
         movement_events = json.load(f2)["events"]
         shot_events = json.load(f3)["hitscanEvents"]
         match_info = json.load(f4)
-
-    zone_events = general_events["safeZoneUpdateEvents"]
-    health_update_events = general_events["healthUpdateEvents"]
-    shield_update_events = general_events["shieldUpdateEvents"]
-    revive_events = general_events["reviveEvents"]
-    reboot_events = general_events["rebootEvents"]
 
     match_start = match_info["startTimestamp"]
 
@@ -215,7 +215,7 @@ def parse_damage_dealt(match_id):
     hit_events = [e for e in shot_events if e.get("hitPlayer")]
     hit_events.sort(key=lambda e: e["timestamp"])
 
-    pos_cache = get_time_table(movement_events, hit_events)
+    pos_cache = indexed_events(movement_events, hit_events)
 
     enriched_damage_events = []
 

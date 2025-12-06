@@ -106,8 +106,8 @@ def parse_match_players(match_id: str) -> list[dict]:
     
     players = []
     for p in match_players:
-        if  p["isSpectator"] or p["isBot"]:
-            continue
+        # if  p["isSpectator"] or p["isBot"]:
+            # continue
 
         players.append({
             "epic_id": p["epicId"],

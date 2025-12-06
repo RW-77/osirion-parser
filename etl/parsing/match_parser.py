@@ -16,15 +16,18 @@ def calculate_distances(coords_pairs):
     return np.sqrt(np.sum(diff**2, axis=1))
 
 
-def indexed_events(player_events: list[dict], reference_events: list[dict]):
+def indexed_events(reference_events: list[dict], player_events: list[dict]):
     """
     Returns for each player, the event belonging to them in `player_events` 
     occuring closest in time to each event in `reference_events`.
 
-    This function has several restrictions:
-        - Assumes `reference_events` is already sorted by `timestamp`.
+    Results will reflect the same order as `reference_events` when passed in.
+
+    This will allow, for a given reference event, instant lookup of all player
+    events that occurred.
     """
-    target_ts = np.sort(np.array([e["timestamp"] for e in reference_events]), kind="stable")
+
+    target_ts = np.array([e["timestamp"] for e in reference_events])
     sorted_per_player = defaultdict(list)
 
     # Created sorted list of `player_events` for each player
@@ -53,6 +56,7 @@ def indexed_events(player_events: list[dict], reference_events: list[dict]):
         # Store results
         cache[player_id]["timestamps"] = event_ts
         cache[player_id]["closest_indices"] = closest_idxs
+        # cache[player_id]["closest_events"][i] is the closest event of player_id to the i-th reference event
         cache[player_id]["closest_events"] = closest_player_events
 
     return cache
@@ -82,8 +86,8 @@ def parse_match_metadata(match_id: str):
         "match_id": match_id,
         "event_id": match_info["eventId"],
         "event_window_id": match_info["eventWindowId"],
-        "start_time": datetime.fromtimestamp(match_info["startTimestamp"]/1e6),
-        "end_time": datetime.fromtimestamp(match_info["endTimestamp"]/1e6) if match_info.get("endTimestamp") else None,
+        "start_time": datetime.fromtimestamp(match_info["startTimestamp"] / 1e6),
+        "end_time": datetime.fromtimestamp(match_info["endTimestamp"] / 1e6) if match_info.get("endTimestamp") else None,
         "gamemode": match_info["gameMode"],
         "duration": datetime.fromtimestamp(match_info["lengthMs"]),
         "player_count": match_info["playerCount"],
@@ -126,18 +130,21 @@ def parse_elims(match_id: str):
         open(f"{match_path}/shot_events.json", "r") as f1,
         open(f"{match_path}/info.json", "r") as f2,
         open(f"{match_path}/eliminationEvents.json", "r") as f3,
-        open(f"{match_path}/safeZoneUpdateEvents.json", "r") as f4
+        open(f"{match_path}/safeZoneUpdateEvents.json", "r") as f4,
+        open(f"{match_path}/movement_events.json") as f5
     ):
         shot_events = json.load(f1)["hitscanEvents"]
         match_info = json.load(f2)
         elim_events = json.load(f3)
         zone_events = json.load(f4)
+        movement_events = json.load(f5)["events"]
 
 
     match_start = match_info["startTimestamp"]
     zone_timeline = build_zone_timeline(zone_events)
 
     elim_events.sort(key=lambda e: e["timestamp"])
+    pos_cache = indexed_events(elim_events, movement_events)
 
     enriched_elim_events = []
     coord_pairs = []
@@ -155,8 +162,13 @@ def parse_elims(match_id: str):
         weapon_id = ee["gunType"]
 
         actor_loc = ee.get("playerLocation")
+        # key "playerLocation" is not guaranteed to exist for storm eliminations
         if actor_loc is None:
-            pass
+            actor_move_event = pos_cache[actor_id]["closest_events"][i]
+            # print(json.dumps(actor_move_event, indent=2))
+            actor_loc = actor_move_event["movementData"]["location"]
+
+        # key "targetLocation" should always exist
         recipient_loc = ee["targetLocation"]
 
         coord_pairs.append((
@@ -212,10 +224,11 @@ def parse_damage_dealt(match_id: str):
     match_start = match_info["startTimestamp"]
 
     zone_timeline = build_zone_timeline(zone_events)
+    # filter shots that hit players
     hit_events = [e for e in shot_events if e.get("hitPlayer")]
-    hit_events.sort(key=lambda e: e["timestamp"])
 
-    pos_cache = indexed_events(movement_events, hit_events)
+    hit_events.sort(key=lambda e: e["timestamp"])
+    pos_cache = indexed_events(hit_events, movement_events)
 
     enriched_damage_events = []
 
@@ -264,6 +277,6 @@ def parse_damage_dealt(match_id: str):
 if __name__ == "__main__":
     match_id = "832ceecc424df110d58e3e96d3dff834"
     damage_events = parse_damage_dealt(match_id)
-    print(json.dumps(damage_events, indent=2))
+    # print(json.dumps(damage_events, indent=2))
     # elim_events = parse_elims(match_id)
     # print(json.dumps(elim_events, indent=2))

@@ -4,6 +4,7 @@ import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 BASE_URL = "https://api.osirion.gg/fortnite/v1"
@@ -70,7 +71,7 @@ def fetch_match_players(match_id: str, out_dir="date/raw") -> str:
     """
     Fetch all match players, including spectators and bots, for a single match.
     """
-    url = f"{BASE_URL}/matches/{match_id}"
+    url = f"{BASE_URL}/matches/{match_id}/players"
     data = _make_request(url)
     out_path =f"{out_dir}/match_{match_id}/players.json"
     _save_json(data, out_path)
@@ -114,10 +115,12 @@ def fetch_match_events(match_id: str, out_dir="data/raw") -> str:
     return out_path
 
 
-def fetch_match_movement_events(match_id: str, 
-                              out_dir="data/raw", 
-                              start_time=0,
-                              end_time=1650) -> str:
+def fetch_match_movement_events(
+    match_id: str, 
+    out_dir="data/raw", 
+    start_time=0,
+    end_time=1650
+) -> str:
     url = f"{BASE_URL}/matches/{match_id}/events/movement"
     params = { "startTimeRelative": {start_time}, "endTimeRelative": {end_time} }
     data = _make_request(url, params)
@@ -126,53 +129,28 @@ def fetch_match_movement_events(match_id: str,
     return out_path
 
 
-def fetch_match_shot_events(match_id: str, 
-                              out_dir="data/raw", 
-                              start_time=0,
-                              end_time=1650) -> str:
+def fetch_match_shot_events(
+    match_id: str,
+    out_dir="data/raw",
+    start_time=0,
+    end_time=1650
+) -> str:
+
     url = f"{BASE_URL}/matches/{match_id}/events/shots"
     params = {"startTimeRelative": start_time, "endTimeRelative": end_time}
-    data = _make_request(url, params)
+    data = _make_request(url, params)["hitscanEvents"]
     out_path = f"{out_dir}/match_{match_id}/shot_events.json"
     _save_json(data, out_path)
     return out_path
 
 
-def fetch_match_all(match_id: str, out_dir: str = "data/raw"):
-    """
-    Fetch all data for a single match from Osirion API.
-    - match metadata
-    - players list
-    - general events
-    - shot events
-    - movements events
-    - build events (later)
-    """
-    print(f"Fetching all data for match {match_id}...")
-
-    paths = {}
-    try:
-            # Fetch match info (metadata)
-            paths["info"] = fetch_match_info(match_id, out_dir)
-            
-            # Fetch players
-            paths["players"] = fetch_match_players(match_id, out_dir)
-            
-            # Fetch general events (eliminations, zones, etc.)
-            paths["events"] = fetch_match_events(match_id, out_dir)
-            
-            # Fetch movement events
-            paths["movement_events"] = fetch_match_movement_events(match_id, out_dir)
-            
-            # Fetch shot events
-            paths["shot_events"] = fetch_match_shot_events(match_id, out_dir)
-            
-            print(f"✅ Successfully fetched all data for match {match_id}")
-            return paths
-        
-    except Exception as e:
-        print(f"❌ Error fetching data for match {match_id}: {e}")
-        raise
+def fetch_match_weapons(match_id: str, out_dir = "data/raw"):
+    url = f"{BASE_URL}/matches/{match_id}/weapons"
+    params = {}
+    data = _make_request(url, params)
+    out_path = f"{out_dir}/match_{match_id}/weapons.json"
+    _save_json(data, out_path)
+    return out_path
 
 
 def fetch_event_window_data(event_window_id: str, out_dir="data/raw"):

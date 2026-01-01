@@ -9,11 +9,12 @@ import etl.api.osirion_client as osr
 EVENT_TYPES = {
     "info": osr.fetch_match_info,
     "players": osr.fetch_match_players,
+    "weapons": osr.fetch_match_weapons,
     "movement_events": osr.fetch_match_movement_events,
     "shot_events": osr.fetch_match_shot_events,
     "safeZoneUpdateEvents": osr.fetch_match_events,
     "reviveEvents": osr.fetch_match_events,
-    "rebootEvents": osr.fetch_match_events
+    "rebootEvents": osr.fetch_match_events,
 }
 
 
@@ -43,6 +44,9 @@ def fetch_match_missing(
     out_dir: str= "data/raw", 
     event_types: dict[str, Callable] | None = None
 ) -> dict:
+    """
+    Fetches all `event_types` for a given match that are not already fetched.
+    """
 
     if event_types is None:
         event_types = EVENT_TYPES
@@ -87,7 +91,8 @@ def fetch_match_all(
     event_types: dict | None = None
 ) -> dict:
     """
-    Fetch all data for a single match from Osirion API.
+    Force refetches all data within `event_types` for a single match from 
+    Osirion API.
     """
     if event_types is None:
         event_types = EVENT_TYPES

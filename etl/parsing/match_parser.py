@@ -63,6 +63,7 @@ def indexed_events(reference_events: list[dict], player_events: list[dict]):
 
 
 def build_zone_timeline(zone_events: list[dict]):
+
     assert len(zone_events) == 12, f"Expected 12 zone events, got {len(zone_events)}"
     
     zone_timeline = []
@@ -86,7 +87,7 @@ def parse_match_metadata(match_id: str):
         "match_id": match_id,
         "event_id": match_info["eventId"],
         "event_window_id": match_info["eventWindowId"],
-        "start_time": datetime.fromtimestamp(match_info["startTimestamp"] / 1e6),
+        "start_time": datetime.fromtimestamp(match_info["aircraftStartTime"] / 1e6),
         "end_time": datetime.fromtimestamp(match_info["endTimestamp"] / 1e6) if match_info.get("endTimestamp") else None,
         "gamemode": match_info["gameMode"],
         "duration": datetime.fromtimestamp(match_info["lengthMs"]),
@@ -106,8 +107,8 @@ def parse_match_players(match_id: str) -> list[dict]:
     
     players = []
     for p in match_players:
-        # if  p["isSpectator"] or p["isBot"]:
-            # continue
+        if  p["isSpectator"] or p["isBot"]:
+            continue
 
         players.append({
             "epic_id": p["epicId"],
@@ -119,6 +120,7 @@ def parse_match_players(match_id: str) -> list[dict]:
 
 
 def parse_elims(match_id: str):
+    print(f"Parsing eliminations for match {match_id}...")
     """
     Time
     Distance
@@ -127,43 +129,47 @@ def parse_elims(match_id: str):
     match_path = f"data/raw/match_{match_id}"
 
     with (
-        open(f"{match_path}/shot_events.json", "r") as f1,
         open(f"{match_path}/info.json", "r") as f2,
-        open(f"{match_path}/eliminationEvents.json", "r") as f3,
+        open(f"{match_path}/human_elim_events.json", "r") as f3,
         open(f"{match_path}/safeZoneUpdateEvents.json", "r") as f4,
-        open(f"{match_path}/movement_events.json") as f5
+        open(f"{match_path}/movement_events.json") as f5,
+        open(f"{match_path}/fireWeaponEvents.json") as f6,
     ):
-        shot_events = json.load(f1)["hitscanEvents"]
         match_info = json.load(f2)
         elim_events = json.load(f3)
         zone_events = json.load(f4)
-        movement_events = json.load(f5)["events"]
+        movement_events = json.load(f5)
+        fire_weapon_events = json.load(f6)
 
-
-    match_start = match_info["startTimestamp"]
+    match_start = match_info["aircraftStartTime"]
     zone_timeline = build_zone_timeline(zone_events)
 
     elim_events.sort(key=lambda e: e["timestamp"])
-    pos_cache = indexed_events(elim_events, movement_events)
+    
+    # Filter out self eliminations before building pos_cache
+    non_self_elims = [e for e in elim_events if not e.get("selfElimination")]
+    pos_cache = indexed_events(non_self_elims, movement_events)
 
     enriched_elim_events = []
     coord_pairs = []
 
-    for i, ee in enumerate(elim_events):
-        # self eliminations do not show actor location
-        if ee["selfElimination"]:
-            continue
-
+    for i, ee in enumerate(non_self_elims):
         actor_id = ee["epicId"]
         recipient_id = ee["targetId"]
 
         ts = ee["timestamp"]
+        game_time_seconds = (ts - match_start) / 1e6
+
         zone = bisect_left(zone_timeline, ts) + 1
-        weapon_id = ee["gunType"]
+        # problem here
+        weapon_id = "WID_Assault_FirePetal_Fast_Athena_UC"
+        gun_type = ee["gunType"]
 
         actor_loc = ee.get("playerLocation")
         # key "playerLocation" is not guaranteed to exist for storm eliminations
         if actor_loc is None:
+            if actor_id not in pos_cache:
+                continue
             actor_move_event = pos_cache[actor_id]["closest_events"][i]
             # print(json.dumps(actor_move_event, indent=2))
             actor_loc = actor_move_event["movementData"]["location"]
@@ -178,6 +184,7 @@ def parse_elims(match_id: str):
 
         enriched_elim_events.append({
             "timestamp": ts,
+            "game_time_seconds": game_time_seconds,
             "zone": zone,
             "weapon_id": weapon_id,
             "actor_id": actor_id,
@@ -197,7 +204,14 @@ def parse_elims(match_id: str):
     return enriched_elim_events
 
 
-def parse_damage_dealt(match_id: str):
+def parse_hitscan_elims(match_id: str) -> list[dict]:
+    """
+    Returns a time-ordered list of elimination events
+
+    Parses shot_events instead of human_elim events
+    """
+
+    print(f"Parsing eliminations(2) for match {match_id}...")
     """
     Time
     Distance
@@ -206,7 +220,7 @@ def parse_damage_dealt(match_id: str):
     match_path = f"data/raw/match_{match_id}"
 
     zone_events_path = f"{match_path}/safeZoneUpdateEvents.json"
-    shot_events_path = f"{match_path}/shot_events.json"
+    shot_events_path = f"{match_path}/human_shot_events.json"
     movement_events_path = f"{match_path}/movement_events.json"
     match_info_path = f"{match_path}/info.json"
 
@@ -217,24 +231,32 @@ def parse_damage_dealt(match_id: str):
         open(match_info_path, "r") as f4,
     ):
         zone_events = json.load(f1)
-        movement_events = json.load(f2)["events"]
-        shot_events = json.load(f3)["hitscanEvents"]
+        movement_events = json.load(f2)
+        shot_events = json.load(f3)
         match_info = json.load(f4)
 
-    match_start = match_info["startTimestamp"]
+    match_start = match_info["aircraftStartTime"]
 
     zone_timeline = build_zone_timeline(zone_events)
     # filter shots that hit players
-    hit_events = [e for e in shot_events if e.get("hitPlayer")]
+    elim_events = [
+        e for e in shot_events 
+        if (
+            e.get("hitPlayer") and
+            e.get("hitFatal")
+        )
+    ]
 
-    hit_events.sort(key=lambda e: e["timestamp"])
-    pos_cache = indexed_events(hit_events, movement_events)
+    elim_events.sort(key=lambda e: e["timestamp"])
+    pos_cache = indexed_events(elim_events, movement_events)
 
     enriched_damage_events = []
 
     coord_pairs = []
-    for i, he in enumerate(hit_events):
+    for i, he in enumerate(elim_events):
         ts = he["timestamp"]
+        game_time_seconds = (ts - match_start) / 1e6
+
         zone = bisect_left(zone_timeline, ts) + 1
 
         damage = he["damage"]
@@ -254,6 +276,88 @@ def parse_damage_dealt(match_id: str):
 
         enriched_damage_events.append({
             "timestamp": ts,
+            "game_time_seconds": game_time_seconds,
+            "zone": zone,
+            "damage": damage,
+            "weapon_id": weapon_id,
+            "actor_id": actor_id,
+            "recipient_id": recipient_id,
+            "ax": actor_loc["x"],
+            "ay": actor_loc["y"],
+            "az": actor_loc["z"],
+            "rx": recipient_loc["x"],
+            "ry": recipient_loc["y"],
+            "rz": recipient_loc["z"],
+        })
+
+    distances = calculate_distances(coord_pairs)
+    for i, event in enumerate(enriched_damage_events):
+        event["distance"] = float(distances[i])
+
+    return enriched_damage_events
+
+
+def parse_damage_dealt(match_id: str):
+    print(f"Parsing damage dealt for match {match_id}...")
+    """
+    Time
+    Distance
+    Weapon
+    """
+    match_path = f"data/raw/match_{match_id}"
+
+    zone_events_path = f"{match_path}/safeZoneUpdateEvents.json"
+    shot_events_path = f"{match_path}/human_shot_events.json"
+    movement_events_path = f"{match_path}/movement_events.json"
+    match_info_path = f"{match_path}/info.json"
+
+    with (
+        open(zone_events_path, "r") as f1,
+        open(movement_events_path, "r") as f2,
+        open(shot_events_path, "r") as f3,
+        open(match_info_path, "r") as f4,
+    ):
+        zone_events = json.load(f1)
+        movement_events = json.load(f2)
+        shot_events = json.load(f3)
+        match_info = json.load(f4)
+
+    match_start = match_info["aircraftStartTime"]
+
+    zone_timeline = build_zone_timeline(zone_events)
+    # filter shots that hit players
+    hit_events = [e for e in shot_events if e.get("hitPlayer")]
+
+    hit_events.sort(key=lambda e: e["timestamp"])
+    pos_cache = indexed_events(hit_events, movement_events)
+
+    enriched_damage_events = []
+
+    coord_pairs = []
+    for i, he in enumerate(hit_events):
+        ts = he["timestamp"]
+        game_time_seconds = (ts - match_start) / 1e6
+
+        zone = bisect_left(zone_timeline, ts) + 1
+
+        damage = he["damage"]
+        weapon_id = he["weaponId"]
+
+        actor_id = he["epicId"]
+        actor_move_event = pos_cache[actor_id]["closest_events"][i]
+        actor_loc = actor_move_event["movementData"]["location"]
+
+        recipient_id = he["hitEpicId"]
+        recipient_loc = he["location"]
+
+        coord_pairs.append((
+            (actor_loc["x"], actor_loc["y"], actor_loc["z"]),
+            (recipient_loc["x"], recipient_loc["y"], recipient_loc["z"])
+        ))
+
+        enriched_damage_events.append({
+            "timestamp": ts,
+            "game_time_seconds": game_time_seconds,
             "zone": zone,
             "damage": damage,
             "weapon_id": weapon_id,

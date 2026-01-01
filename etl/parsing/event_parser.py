@@ -58,8 +58,14 @@ def parse_event_weapons(event_window_id) -> list[dict]:
     
     # Non-weapon types to filter out
     excluded_types = {
-        "PICKAXE", "BUILDING", "LOOT", "SHIELD_HEAL", 
-        "EDIT_TOOL", "MOVEMENT", "HEALTH_HEAL", "BOTH_HEAL"
+        "PICKAXE", 
+        "BUILDING", 
+        "LOOT", 
+        "SHIELD_HEAL", 
+        "EDIT_TOOL",
+        "MOVEMENT", 
+        "HEALTH_HEAL", 
+        "BOTH_HEAL"
     }
 
     for match in matches:

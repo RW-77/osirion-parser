@@ -7,6 +7,7 @@ from bisect import bisect_left
 from collections import defaultdict
 from datetime import datetime
 
+from etl.parsing.cleaning import get_id_to_name_map
 
 def calculate_distances(coords_pairs):
     """Calculate 3D distances from coordinate pairs."""
@@ -133,13 +134,13 @@ def parse_elims(match_id: str):
         open(f"{match_path}/human_elim_events.json", "r") as f3,
         open(f"{match_path}/safeZoneUpdateEvents.json", "r") as f4,
         open(f"{match_path}/movement_events.json") as f5,
-        open(f"{match_path}/fireWeaponEvents.json") as f6,
+        open(f"{match_path}/shot_events.json") as f6,
     ):
         match_info = json.load(f2)
         elim_events = json.load(f3)
         zone_events = json.load(f4)
         movement_events = json.load(f5)
-        fire_weapon_events = json.load(f6)
+        shot_events = json.load(f6)
 
     match_start = match_info["aircraftStartTime"]
     zone_timeline = build_zone_timeline(zone_events)
@@ -376,6 +377,34 @@ def parse_damage_dealt(match_id: str):
         event["distance"] = float(distances[i])
 
     return enriched_damage_events
+
+
+def parse_assists(match_id: str):
+    match_path = f"data/raw/match_{match_id}"
+    with (
+        open(f"{match_path}/info.json", "r") as f1,
+        open(f"{match_path}/shot_events.json", "r") as f2,
+        open(f"{match_path}/eliminationEvents.json", "r") as f3,
+        open(f"{match_path}/healthUpdateEvents.json") as f4,
+        open(f"{match_path}/shieldUpdateEvents.json") as f5,
+        open(f"{match_path}/players.json", "r") as f6
+    ):
+        info = json.load(f1)
+        shot_events = json.load(f2)
+        elim_events = json.load(f3)
+        health_update_events = json.load(f4)
+        shield_update_events = json.load(f5)
+        players = json.load(f6)
+    
+    player_map: dict = get_id_to_name_map(match_id)
+    state = {
+        id: {
+            "ehp": 100,
+            "hits": []
+        }
+        for id in player_map.keys()
+    }
+    all_events = []
 
 
 if __name__ == "__main__":

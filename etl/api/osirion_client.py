@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 from pathlib import Path
 from dotenv import load_dotenv
@@ -9,15 +10,83 @@ load_dotenv()
 
 BASE_URL = "https://api.osirion.gg/fortnite/v1"
 API_KEY = os.getenv("API_KEY") 
+
+if not API_KEY:
+    raise ValueError("API_KEY not found in environment variables. Please check your .env file.")
+
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 
 
-def _make_request(url: str, params: dict | None = None) -> dict:
-    print(f"API key: {API_KEY}")
-    res = requests.get(url, headers=HEADERS, params=params or {})
-    if res.status_code != 200:
-        raise RuntimeError(f"Error {res.status_code}: {res.text[:200]}")
-    return res.json()
+def _make_request(url: str, params: dict | None = None, max_retries: int = 3, retry_delay: float = 1.0) -> dict:
+    """
+    Make a request to the Osirion API with retry logic for transient errors.
+    
+    Args:
+        url: The API endpoint URL
+        params: Optional query parameters
+        max_retries: Maximum number of retry attempts
+        retry_delay: Initial delay between retries (exponential backoff)
+    
+    Returns:
+        The JSON response data
+    
+    Raises:
+        RuntimeError: If the request fails after all retries
+        ValueError: If API_KEY is not set
+    """
+    # Transient error status codes that should be retried
+    retryable_status_codes = {502, 503, 504}  # Bad Gateway, Service Unavailable, Gateway Timeout
+    
+    for attempt in range(max_retries):
+        try:
+            res = requests.get(url, headers=HEADERS, params=params or {}, timeout=30)
+            
+            # Success
+            if res.status_code == 200:
+                return res.json()
+            
+            # Check if it's a retryable error
+            if res.status_code in retryable_status_codes and attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                error_msg = res.text[:200] if res.text else "No error message"
+                print(f"⚠️  Transient error {res.status_code} (attempt {attempt + 1}/{max_retries}): {error_msg}")
+                print(f"   Retrying in {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+                continue
+            
+            # Non-retryable error or final attempt
+            error_msg = res.text[:200] if res.text else "No error message"
+            
+            # Special handling for 401 errors
+            if res.status_code == 401:
+                raise RuntimeError(
+                    f"Authentication failed (401). "
+                    f"This usually means your API key is invalid or expired. "
+                    f"Error details: {error_msg}\n"
+                    f"Please check your API_KEY in the .env file."
+                )
+            
+            raise RuntimeError(f"Error {res.status_code}: {error_msg}")
+            
+        except requests.exceptions.Timeout:
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)
+                print(f"⚠️  Request timeout (attempt {attempt + 1}/{max_retries}). Retrying in {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+                continue
+            raise RuntimeError(f"Request timeout after {max_retries} attempts")
+        
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries - 1:
+                wait_time = retry_delay * (2 ** attempt)
+                print(f"⚠️  Request exception (attempt {attempt + 1}/{max_retries}): {e}")
+                print(f"   Retrying in {wait_time:.1f} seconds...")
+                time.sleep(wait_time)
+                continue
+            raise RuntimeError(f"Request failed after {max_retries} attempts: {e}")
+    
+    # Should never reach here, but just in case
+    raise RuntimeError(f"Request failed after {max_retries} attempts")
 
 
 def _save_json(data: dict, path: str):
@@ -96,7 +165,9 @@ def fetch_match_events(match_id: str, out_dir="data/raw") -> str:
         "knockedDownEvents",
         "eliminationEvents",
         "playerInventoryUpdateEvents",
-        "landingEvents"
+        "landingEvents",
+        "healthUpdateEvents",
+        "shieldUpdateEvents"
     ]
 
     params = { "include": ",".join(required_logs) }
@@ -123,7 +194,7 @@ def fetch_match_movement_events(
 ) -> str:
     url = f"{BASE_URL}/matches/{match_id}/events/movement"
     params = { "startTimeRelative": {start_time}, "endTimeRelative": {end_time} }
-    data = _make_request(url, params)
+    data = _make_request(url, params)["events"]
     out_path = f"{out_dir}/match_{match_id}/movement_events.json"
     _save_json(data, out_path)
     return out_path

@@ -54,18 +54,19 @@ class ObjectWrapper:
             raise
 
 
-def match_movement_object(match_id: str, hz: int):
+def get_match_object(match_id: str, hz: int):
     """
     Parses the movement_events.json log of a match and returns a binary object
     containing all player positions at regular intervals.
     """
 
-    sample_dt = 1.0 / hz
+    dt = 1.0 / hz
 
-    match_path = Path("data/raw/match_{match_id}")
+    match_path = Path(f"data/raw/match_{match_id}")
 
     match_logs = [ 
         "movement_events",
+        "knockedDownEvents",
         "eliminationEvents",
         "healthUpdateEvents",
         "shieldUpdateEvents",
@@ -120,33 +121,71 @@ def match_movement_object(match_id: str, hz: int):
     all_events.sort(key=lambda x: x["timestamp"])
 
     print(f"Merged {len(all_events)} total events:")
-    print(f"  - {sum(1 for e in all_events if e['type'] == 'damage')} damage events")
+    print(f"  - {sum(1 for e in all_events if e['type'] == 'movement')} movement events")
     print(f"  - {sum(1 for e in all_events if e['type'] == 'elimination')} elimination events")
     print(f"  - {sum(1 for e in all_events if e['type'] == 'health_update')} health updates")
     print(f"  - {sum(1 for e in all_events if e['type'] == 'shield_update')} shield updates")
+    print(f"  - {sum(1 for e in all_events if e['type'] == 'revive')} revive updates")
+    print(f"  - {sum(1 for e in all_events if e['type'] == 'reboot')} reboot updates")
 
     player_map: dict = get_id_to_name_map(match_id)
     movement_events = sorted(data["movement_events"], key=lambda x: x["timestamp"])
-    samples = []
-    start_time = info["aircraftStartTime"]
-    end_time = info["endTimestamp"]
 
     state = {
         id: {
+            "x": 0.0,
+            "y": 0.0,
+            "z": 0.0,
+            "yaw": 0.0,
+            "health": 100.0,
+            "shield": 0.0,
             "alive": True,
-            "x": None,
-            "y": None,
-            "z": None
+            "dbno": False,
         } for id in player_map.keys()
     }
-    ret = {}
-    t = start_time
-    i = 0
 
-    while t <= end_time:
-        while i < len(movement_events) and movement_events[i]["timestamp"] <= t:
-            ev = movement_events[i]
-            ret[ev["player_id"]] = (
-                ev["x"], ev["y"], ev["z"], ev["yaw"]
-            )
-            i += 1
+    frames = []
+    t_0 = info["aircraftStartTime"]
+    t_f = info["endTimestamp"]
+    next_t = t_0
+
+    for evt in all_events:
+        evt_type = evt["type"]
+        timestamp = evt["timestamp"]
+        data = evt["data"]
+        id = data["epicId"]
+
+        while next_t <= evt["timestamp"]:
+            # capture the current state in the return frames
+            frames.
+            next_t += dt
+
+        # update the state based on the event
+        match evt["type"]:
+            case "movement":
+                state[id]["x"] = data["location"]["x"]
+                state[id]["y"] = data["location"]["y"]
+                state[id]["z"] = data["location"]["z"]
+                state[id]["yaw"] = data["rotationYaw"]
+            case "elimination":
+                state[id]["alive"] = False
+                state[id]["dbno"] = False
+                state[id]["health"] = 0.0
+                state[id]["shield"] = 0.0
+            case "health_update":
+                state[id]["health"] = data["value"]
+            case "shield_update":
+                state[id]["shield"] = data["value"]
+            case "revive":
+                state[id]
+            case "reboot":
+                pass
+            case _:
+                raise
+
+    return frames
+
+
+if __name__ == "__main__":
+    match_id = "832ceecc424df110d58e3e96d3dff834"
+    frames = get_match_object(match_id=match_id, hz=20)

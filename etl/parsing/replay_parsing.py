@@ -167,21 +167,52 @@ def get_match_object(match_id: str, hz: int):
                 state[id]["y"] = data["location"]["y"]
                 state[id]["z"] = data["location"]["z"]
                 state[id]["yaw"] = data["rotationYaw"]
+            case "knock":
+                if state[id]["alive"] == False:
+                    print(f"Knock on dead player {id} at t={timestamp}")
+                    print(f"\t\"alive\" should be True but is False")
+                    state[id]["alive"] = True
+                state[id]["dbno"] = True
+                if not state[id]["dead"] == True:
+                    print(f"Knock on dead player {id} at t={timestamp}")
+                    print(f"\t\"dead\" should be False but is True")
+                    state[id]["dead"] = False
             case "elimination":
                 state[id]["alive"] = False
                 state[id]["dbno"] = False
                 state[id]["health"] = 0.0
                 state[id]["shield"] = 0.0
             case "health_update":
+                if state[id]["alive"] == False:
+                    print(f"Knock on dead player {id} at t={timestamp}")
+                    print(f"\t\"alive\" should be True but is False")
+                    state[id]["alive"] = True
+                if not state[id]["dead"] == True:
+                    print(f"Knock on dead player {id} at t={timestamp}")
+                    print(f"\t\"dead\" should be False but is True")
+                    state[id]["dead"] = False
                 state[id]["health"] = data["value"]
             case "shield_update":
+                if state[id]["alive"] == False:
+                    print(f"Knock on dead player {id} at t={timestamp}")
+                    print(f"\t\"alive\" should be True but is False")
+                    state[id]["alive"] = True
+                if not state[id]["dead"] == True:
+                    print(f"Knock on dead player {id} at t={timestamp}")
+                    print(f"\t\"dead\" should be False but is True")
+                    state[id]["dead"] = False
                 state[id]["shield"] = data["value"]
             case "revive":
-                state[id]
+                state[id]["alive"] = True
+                state[id]["dbno"] = False
+                # state[id]["dead"] = False
             case "reboot":
-                pass
+                state[id]["alive"] = True
+                # state[id]["dbno"] = False
+                state[id]["dead"] = False
             case _:
-                raise
+                print(f"Current event for player {id} does not have an event type.")
+                raise Exception
 
     return frames
 

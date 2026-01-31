@@ -1,4 +1,5 @@
 import uuid
+import copy
 import json
 import logging
 import numpy as np
@@ -10,6 +11,7 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger(__name__)
 
 from etl.parsing.cleaning import get_id_to_name_map
+from etl.api.preprocessing import get_players
 
 
 class ObjectWrapper:
@@ -59,8 +61,6 @@ def get_match_object(match_id: str, hz: int):
     Parses the movement_events.json log of a match and returns a binary object
     containing all player positions at regular intervals.
     """
-
-    dt = 1.0 / hz
 
     match_path = Path(f"data/raw/match_{match_id}")
 
@@ -129,94 +129,95 @@ def get_match_object(match_id: str, hz: int):
     print(f"  - {sum(1 for e in all_events if e['type'] == 'reboot')} reboot updates")
 
     player_map: dict = get_id_to_name_map(match_id)
-    movement_events = sorted(data["movement_events"], key=lambda x: x["timestamp"])
 
-    state = {
-        id: {
-            "x": 0.0,
-            "y": 0.0,
-            "z": 0.0,
-            "yaw": 0.0,
-            "health": 100.0,
-            "shield": 0.0,
-            "alive": True,
-            "dbno": False,
-        } for id in player_map.keys()
-    }
+    player_ids = list(player_map.keys())
+    player_index = {pid: i for i, pid in enumerate(player_ids)}
+    N = len(player_ids)
+
+    state = np.zeros((N,8), dtype=np.float32)
+    state[:, 4] = 100.0 # alive
+    state[:, 6] = 1.0 # alive
 
     frames = []
-    t_0 = info["aircraftStartTime"]
-    t_f = info["endTimestamp"]
-    next_t = t_0
+    t_0 = info["aircraftStartTime"]  # microseconds
+    next_t = 0.0  # seconds (relative to aircraftStartTime)
+    dt = 1.0 / hz  # seconds
 
     for evt in all_events:
+        evt["timestamp"] = (evt["timestamp"] - t_0) * 1e-6 # seconds
+
+    bot_players = get_players(match_id, is_bot=True)
+    for k, v in bot_players.items():
+        print(k)
+
+    for i, evt in enumerate(all_events):
+
+        if (i % 10000 == 0):
+            print(f"Processing event {i}...", flush=True)
         evt_type = evt["type"]
         timestamp = evt["timestamp"]
+        print(f"timestamp: {timestamp}")
         data = evt["data"]
         id = data["epicId"]
 
-        while next_t <= evt["timestamp"]:
-            # capture the current state in the return frames
-            frames.
-            next_t += dt
+        if data["epicId"] in bot_players.keys():
+            continue
 
+        # for all frames between this event (state) and the previous
+        # copy the state to the frame
+        while next_t <= evt["timestamp"]:
+            print(f"next_t: {next_t}")
+            print(f"evt['timestamp']: {evt['timestamp']} (dt: {dt})")
+            # capture the current state in the return frames
+            frames.append(state.copy())
+            print(f"next_t from {next_t}")
+            next_t += dt
+            print(f"to {next_t}")
+
+        idx = player_index[id]
+            
         # update the state based on the event
         match evt["type"]:
             case "movement":
-                state[id]["x"] = data["location"]["x"]
-                state[id]["y"] = data["location"]["y"]
-                state[id]["z"] = data["location"]["z"]
-                state[id]["yaw"] = data["rotationYaw"]
+                print(f"movement event: {data}")
+                state[idx, 0] = data["movementData"]["location"]["x"]
+                state[idx, 1] = data["movementData"]["location"]["y"]
+                state[idx, 2] = data["movementData"]["location"]["z"]
+                state[idx, 3] = data["movementData"]["rotationYaw"]
             case "knock":
-                if state[id]["alive"] == False:
-                    print(f"Knock on dead player {id} at t={timestamp}")
-                    print(f"\t\"alive\" should be True but is False")
-                    state[id]["alive"] = True
-                state[id]["dbno"] = True
-                if not state[id]["dead"] == True:
-                    print(f"Knock on dead player {id} at t={timestamp}")
-                    print(f"\t\"dead\" should be False but is True")
-                    state[id]["dead"] = False
+                print(f"knock event: {data}")
+                # NOTE: players can have shield and health when knocked
+                state[idx, 6] = 1.0
+                state[idx, 7] = 1.0
             case "elimination":
-                state[id]["alive"] = False
-                state[id]["dbno"] = False
-                state[id]["health"] = 0.0
-                state[id]["shield"] = 0.0
+                print(f"elimination event: {data}")
+                state[idx, 6] = 0.0
+                state[idx, 7] = 0.0
+                state[idx, 4] = 0.0
+                state[idx, 5] = 0.0
             case "health_update":
-                if state[id]["alive"] == False:
-                    print(f"Knock on dead player {id} at t={timestamp}")
-                    print(f"\t\"alive\" should be True but is False")
-                    state[id]["alive"] = True
-                if not state[id]["dead"] == True:
-                    print(f"Knock on dead player {id} at t={timestamp}")
-                    print(f"\t\"dead\" should be False but is True")
-                    state[id]["dead"] = False
-                state[id]["health"] = data["value"]
+                print(f"health update event: {data}")
+                state[idx, 4] = data["value"]
             case "shield_update":
-                if state[id]["alive"] == False:
-                    print(f"Knock on dead player {id} at t={timestamp}")
-                    print(f"\t\"alive\" should be True but is False")
-                    state[id]["alive"] = True
-                if not state[id]["dead"] == True:
-                    print(f"Knock on dead player {id} at t={timestamp}")
-                    print(f"\t\"dead\" should be False but is True")
-                    state[id]["dead"] = False
-                state[id]["shield"] = data["value"]
+                print(f"shield update event: {data}")
+                state[idx, 5] = data["value"]
             case "revive":
-                state[id]["alive"] = True
-                state[id]["dbno"] = False
-                # state[id]["dead"] = False
+                print(f"revive event: {data}")
+                state[idx, 6] = True
+                state[idx, 7] = False
             case "reboot":
-                state[id]["alive"] = True
-                # state[id]["dbno"] = False
-                state[id]["dead"] = False
+                print(f"reboot event: {data}")
+                state[idx, 6] = True
+                state[idx, 7] = False
             case _:
                 print(f"Current event for player {id} does not have an event type.")
                 raise Exception
 
-    return frames
+    return player_index, frames
+
 
 
 if __name__ == "__main__":
     match_id = "832ceecc424df110d58e3e96d3dff834"
     frames = get_match_object(match_id=match_id, hz=20)
+    print(frames)

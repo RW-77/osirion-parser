@@ -152,13 +152,12 @@ def get_match_object(match_id: str, hz: int):
 
     for i, evt in enumerate(all_events):
 
-        if (i % 10000 == 0):
-            print(f"Processing event {i}...", flush=True)
         evt_type = evt["type"]
         timestamp = evt["timestamp"]
-        print(f"timestamp: {timestamp}")
         data = evt["data"]
+
         id = data["epicId"]
+        idx = player_index.get(id)
 
         if data["epicId"] in bot_players.keys():
             continue
@@ -166,47 +165,44 @@ def get_match_object(match_id: str, hz: int):
         # for all frames between this event (state) and the previous
         # copy the state to the frame
         while next_t <= evt["timestamp"]:
-            print(f"next_t: {next_t}")
-            print(f"evt['timestamp']: {evt['timestamp']} (dt: {dt})")
             # capture the current state in the return frames
             frames.append(state.copy())
-            print(f"next_t from {next_t}")
             next_t += dt
-            print(f"to {next_t}")
 
-        idx = player_index[id]
+        target_id = data.get("targetId")
+        target_idx = player_index.get(target_id)
             
         # update the state based on the event
+        # 1: x
+        # 2: y
+        # 3: z
+        # 4: hp
+        # 5: shield
+        # 6: alive
+        # 7: knocked/dbno
         match evt["type"]:
             case "movement":
-                print(f"movement event: {data}")
                 state[idx, 0] = data["movementData"]["location"]["x"]
                 state[idx, 1] = data["movementData"]["location"]["y"]
                 state[idx, 2] = data["movementData"]["location"]["z"]
                 state[idx, 3] = data["movementData"]["rotationYaw"]
             case "knock":
-                print(f"knock event: {data}")
                 # NOTE: players can have shield and health when knocked
-                state[idx, 6] = 1.0
-                state[idx, 7] = 1.0
+                state[target_idx, 6] = 1.0
+                state[target_idx, 7] = 1.0
             case "elimination":
-                print(f"elimination event: {data}")
-                state[idx, 6] = 0.0
-                state[idx, 7] = 0.0
-                state[idx, 4] = 0.0
-                state[idx, 5] = 0.0
+                state[target_idx, 6] = 0.0
+                state[target_idx, 7] = 0.0
+                state[target_idx, 4] = 0.0
+                state[target_idx, 5] = 0.0
             case "health_update":
-                print(f"health update event: {data}")
                 state[idx, 4] = data["value"]
             case "shield_update":
-                print(f"shield update event: {data}")
                 state[idx, 5] = data["value"]
             case "revive":
-                print(f"revive event: {data}")
                 state[idx, 6] = True
                 state[idx, 7] = False
             case "reboot":
-                print(f"reboot event: {data}")
                 state[idx, 6] = True
                 state[idx, 7] = False
             case _:

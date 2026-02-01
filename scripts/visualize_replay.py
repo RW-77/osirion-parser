@@ -153,13 +153,19 @@ def main():
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    frames = get_match_object(match_id=args.match_id, hz=args.hz)
+    result = get_match_object(match_id=args.match_id, hz=args.hz)
+    if isinstance(result, tuple) and len(result) == 2:
+        player_index, frames = result
+    else:
+        player_index, frames = None, result
     if args.stride > 1:
         frames = frames[:: args.stride]
     if args.max_frames:
         frames = frames[: args.max_frames]
 
     if args.debug:
+        if player_index is not None:
+            print(f"Players: {len(player_index)}")
         print(f"Frames: {len(frames)}")
         print(summarize_frames(frames, alive_only=args.alive_only))
 

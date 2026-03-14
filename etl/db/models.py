@@ -13,6 +13,39 @@ class Base(DeclarativeBase):
     pass
 
 
+class Weapon(Base):
+    __tablename__ = "weapons"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    weapon_id: Mapped[str] = mapped_column(String(100))
+    weapon_type: Mapped[str] = mapped_column(String(50))
+    event_window_id: Mapped[str] = mapped_column(String(100), ForeignKey("event_windows.event_window_id"))
+    
+    # Relationships
+    event_window: Mapped["EventWindow"] = relationship(back_populates="weapons")
+    
+    __table_args__ = (
+        Index('idx_weapon_type', 'weapon_type'),
+        Index('idx_weapon_event_window', 'event_window_id'),
+        Index('idx_weapon_weapon_id', 'weapon_id'),
+        Index('idx_weapon_unique', 'weapon_id', 'event_window_id', unique=True),
+    )
+    
+    def __repr__(self):
+        return f"<Weapon(id={self.id}, weapon_id={self.weapon_id}, weapon_type={self.weapon_type}, event_window_id={self.event_window_id})>"
+
+
+class Event(Base):
+    __tablename__ = "events"
+
+    event_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None, nullable=True)
+    end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None, nullable=True)
+    
+    def __repr__(self):
+        return f"<Event(event_id={self.event_id})>"
+
+
 class EventWindow(Base):
     __tablename__ = "event_windows"
 
@@ -32,11 +65,12 @@ class EventWindow(Base):
     start_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None, nullable=True)
     end_time: Mapped[Optional[datetime]] = mapped_column(DateTime, default=None, nullable=True)
 
-    total_matches: Mapped[int] = mapped_column(Integer)
-    processed_matches: Mapped[int] = mapped_column(Integer)
+    total_matches: Mapped[int] = mapped_column(Integer, default=0)
+    processed_matches: Mapped[int] = mapped_column(Integer, default=0)
 
     # Relationships
     matches: Mapped[List["Match"]] = relationship(back_populates="event_window")
+    weapons: Mapped[List["Weapon"]] = relationship(back_populates="event_window")
 
     def __repr__(self):
         return f"<EventWindow(event_window_id={self.event_window_id})>"
@@ -49,6 +83,11 @@ class Match(Base):
 
     # Foreign keys
     event_window_id: Mapped[str] = mapped_column(String(50), ForeignKey("event_windows.event_window_id"))
+
+    # Processing status
+    processing: Mapped[bool] = mapped_column(Boolean, default=False)
+    processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    failed: Mapped[bool] = mapped_column(Boolean, default=False)
     
     # Match metadata
     event_id: Mapped[Optional[str]] = mapped_column(String(100), default=None)
@@ -107,8 +146,8 @@ class DamageDealtEvent(Base):
     game_time_seconds: Mapped[Optional[int]] = mapped_column(Integer, default=None)
     
     # Foreign keys to players
-    actor_id: Mapped[int] = mapped_column(Integer, ForeignKey("match_players.id"))
-    recipient_id: Mapped[int] = mapped_column(Integer, ForeignKey("match_players.id"))
+    actor_id: Mapped[int] = mapped_column(Integer, ForeignKey("match_players.id"), nullable=True)
+    recipient_id: Mapped[int] = mapped_column(Integer, ForeignKey("match_players.id"), nullable=True)
     
     # Weapon info
     weapon_id: Mapped[str] = mapped_column(String(100))
